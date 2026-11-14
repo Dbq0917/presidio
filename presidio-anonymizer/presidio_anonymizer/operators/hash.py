@@ -14,6 +14,7 @@ class Hash(Operator):
 
     HASH_TYPE = "hash_type"
     SALT = "salt"
+    MIN_SALT_LENGTH = 16
     SHA256 = "sha256"
     SHA512 = "sha512"
 
@@ -29,32 +30,12 @@ class Hash(Operator):
                     Must be at least 16 bytes (128 bits) if provided.
         :return: hashed original text with salt
         """
+        params = params or {}
         hash_type = self._get_hash_type_or_default(params)
-
-        # Use user-provided salt if available, otherwise generate random salt
-        if self.SALT in params:
-            salt = params[self.SALT]
-            # Ensure salt is bytes
-            if isinstance(salt, str):
-                salt = salt.encode()
-            # Validate salt is not empty and meets minimum length (16 bytes / 128 bits)
-            if len(salt) == 0:
-                raise InvalidParamError(
-                    "Salt parameter cannot be empty. Either omit the salt parameter "
-                    "to auto-generate a random salt, or provide a salt of at least "
-                    "16 bytes (128 bits)."
-                )
-            if len(salt) < 16:
-                raise InvalidParamError(
-                    f"Salt must be at least 16 bytes (128 bits). "
-                    f"Provided salt is {len(salt)} bytes."
-                )
-        else:
-            # Generate random salt for this entity (prevents brute-force attacks)
-            salt = os.urandom(32)
+        salt = self._get_salt(params)
 
         # Concatenate text and salt before hashing
-        salted_text = text.encode() + salt
+        salted_text = text.encode("utf-8") + salt
 
         hash_switcher = {
             self.SHA256: lambda s: sha256(s),
@@ -64,20 +45,48 @@ class Hash(Operator):
 
     def validate(self, params: Dict = None) -> None:
         """Validate the hash type is string and in range of allowed hash types."""
+        params = params or {}
         validate_parameter_in_range(
             [self.SHA256, self.SHA512],
             self._get_hash_type_or_default(params),
             self.HASH_TYPE,
             str,
         )
-        pass
+        if self.SALT in params:
+            self._validate_salt(params[self.SALT])
 
     def operator_name(self) -> str:
         """Return operator name."""
         return "hash"
 
     def _get_hash_type_or_default(self, params: Dict = None):
+        params = params or {}
         return params.get(self.HASH_TYPE, self.SHA256)
+
+    def _get_salt(self, params: Dict) -> bytes:
+        if self.SALT not in params:
+            # Random salt per entity prevents brute-force attacks when the caller
+            # does not need referential integrity.
+            return os.urandom(32)
+        return self._validate_salt(params[self.SALT])
+
+    def _validate_salt(self, salt) -> bytes:
+        if isinstance(salt, str):
+            salt = salt.encode("utf-8")
+        if not isinstance(salt, bytes):
+            raise InvalidParamError("Salt parameter must be a string or bytes.")
+        if len(salt) == 0:
+            raise InvalidParamError(
+                "Salt parameter cannot be empty. Either omit the salt parameter "
+                "to auto-generate a random salt, or provide a salt of at least "
+                "16 bytes (128 bits)."
+            )
+        if len(salt) < self.MIN_SALT_LENGTH:
+            raise InvalidParamError(
+                f"Salt must be at least 16 bytes (128 bits). "
+                f"Provided salt is {len(salt)} bytes."
+            )
+        return salt
 
     def operator_type(self) -> OperatorType:
         """Return operator type."""

@@ -251,6 +251,38 @@ def test_when_salt_is_empty_then_error_raised():
         Hash().operate(text=text, params=params)
 
 
+def test_when_validating_short_salt_then_error_raised():
+    """Validation should reject a salt that cannot be used for joins safely."""
+    with pytest.raises(
+        InvalidParamError,
+        match="Salt must be at least 16 bytes",
+    ):
+        Hash().validate(params={"salt": b"short"})
+
+
+def test_when_validating_empty_salt_then_error_raised():
+    """Validation should reject an explicitly empty salt."""
+    with pytest.raises(
+        InvalidParamError,
+        match="Salt parameter cannot be empty",
+    ):
+        Hash().validate(params={"salt": ""})
+
+
+def test_when_salt_is_not_string_or_bytes_then_error_raised():
+    """Salt must be text or bytes so its length can be validated."""
+    with pytest.raises(
+        InvalidParamError,
+        match="Salt parameter must be a string or bytes",
+    ):
+        Hash().validate(params={"salt": 1234567890123456})
+
+
+def test_when_validating_valid_salt_then_no_error_is_raised():
+    """A salt with at least 128 bits should pass validation."""
+    Hash().validate(params={"salt": b"0123456789abcdef"})
+
+
 def test_when_salt_minimum_length_then_accepted():
     """Test that salt with exactly 16 bytes is accepted."""
     text = "data"

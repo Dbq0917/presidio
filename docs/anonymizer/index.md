@@ -265,20 +265,24 @@ of the AnalyzerEngine"
     
     **Action Required:**
     - If you need the same hash for the same value (referential integrity), you **must** explicitly provide a `salt` parameter
-    - If you're upgrading from a previous version and need to match existing hashes, this is not possible without the original salt
+    - Hashes produced by releases before 2.2.361 used unsalted SHA-256/SHA-512 and
+      cannot be reproduced by the current salted hash operator. Keep the legacy
+      deployment for those records, migrate them, or use a custom operator if
+      they must continue to match new data.
     
-    !!! note: Note
+    !!! note "Note"
         Presidio does not store or maintain stateful sessions. For referential integrity across records or calls, users must securely manage and provide their own salt.
 
-The hash operator uses random salt by default for maximum security, which means the same PII value will get different hashes in different entities or calls. If you need referential integrity (same values getting the same hash), you must provide a consistent salt:
+The hash operator uses random salt by default for maximum security, which means the same PII value will get different hashes in different entities or calls. If you need referential integrity (same values getting the same hash), you must provide a consistent salt. Normalize the value first when equivalent identifiers can have different formatting, for example canonicalizing phone numbers to E.164:
 
 ```python
-import secrets
+import os
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import RecognizerResult, OperatorConfig
 
-# Generate a secure salt once (store this securely for reuse across calls)
-salt = secrets.token_hex(32)  # 64 character hex string (256 bits)
+# Load one long-lived salt from a secrets manager. Do not generate a new value
+# for each run: that would make historical and new hashes non-joinable.
+salt = os.environ["PRESIDIO_HASH_SALT"]  # At least 16 bytes, preferably 32+
 
 engine = AnonymizerEngine()
 text = "John Doe called John Doe yesterday"
@@ -298,10 +302,22 @@ result = engine.anonymize(
 print(result.text)
 ```
 
+Use the same salt, hash type, and normalization for every table that must join.
+For example, anonymize each table's `phone_number` column with the same
+`OperatorConfig` and store the result in a canonical phone number column.
+
+!!! warning "Salt rotation and historical data"
+    The salt is a key. Rotating it moves new hashes into a different namespace:
+    an old hash cannot be transformed into a new hash, and the original PII
+    cannot be recovered from either value. If historical records cannot be
+    rehashed, keep the old salt active for writes that must join them, or
+    maintain an explicit mapping/dual-write of old and new tokens during a
+    migration. Rotate the salt only if you can rebuild historical values or can
+    accept that joins across the rotation boundary will no longer match.
+
 !!! warning "Security Considerations"
-    - **Discard the salt after processing**: The salt should be discarded once all data is anonymized to prevent re-identification if leaked
-    - Store salt only if you need to process additional data later for referential integrity (increases re-identification risk)
-    - If you must store salt, use secure storage (e.g., key vault or secrets manager) with strict access controls
+    - **Keep the salt stable when joins are required**: Store it in secure storage (e.g., key vault or secrets manager) with strict access controls
+    - **Discard the salt after processing if joins are not required**: Omitting the salt uses a random per-entity salt, so nothing needs to be retained
     - Use a salt of at least 128 bits (16 bytes) - enforced by the operator
     - Never include the salt in anonymized output
     - For maximum security without referential integrity needs, omit the salt parameter to use random per-entity salts

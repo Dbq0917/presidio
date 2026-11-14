@@ -30,11 +30,21 @@ Presidio anonymizer comes by default with the following anonymizers:
 
 -   **Redact**: Removes the PII completely from text.
     -   Parameters: None
--   **Hash**: Hashes the PII using either sha256 or sha512. 
+-   **Hash**: Hashes the PII using either sha256 or sha512.
     -   Parameters:
-        - `hash_type`: Sets the type of hashing. 
+        - `hash_type`: Sets the type of hashing.
           Can be either `sha256` or `sha512` (`md5` is deprecated as of version 2.2.358).
           The default hash type is `sha256`.
+        - `salt`: Optional secret of at least 16 bytes. Provide the same stable
+          salt across records and tables when equal values must produce equal
+          hashes for joins. If omitted, a random salt is generated for each
+          entity and equal values intentionally produce different hashes.
+
+          A salt is a key: changing it changes every hash. Existing anonymized
+          values cannot be joined across a salt change without rehashing the
+          source data or keeping a mapping between old and new values. Store
+          the salt in a secrets manager and keep it stable for as long as the
+          relationship must remain joinable.
 -   **Mask**: Replaces the PII with a sequence of a given character.
     -   Parameters:
 
